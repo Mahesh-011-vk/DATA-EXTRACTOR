@@ -6,6 +6,7 @@ import {
   Globe, Hash, Heading, LoaderCircle, Mail, Phone, Plus,
   Search, Trash2, UploadCloud, X, Eye,
 } from 'lucide-react';
+import { parseDocument, extractStructuredFields } from './documentParser';
 
 type ExtractedFields = {
   filename: string;
@@ -139,57 +140,19 @@ export default function App() {
   };
 
   const extractClientSide = async (targetFile: File): Promise<Result> => {
-    let text = '';
-    try {
-      text = await targetFile.text();
-    } catch {
-      text = `Extracted from ${targetFile.name}`;
-    }
-    const emails = Array.from(new Set(text.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g) || [])).sort();
-    const phones = Array.from(new Set(text.match(/(?<!\w)(?:\+?\d[\d\s().-]{7,}\d)(?!\w)/g) || [])).sort();
-    const urls = Array.from(new Set(text.match(/https?:\/\/[^\s<>\])}]+/gi) || [])).sort();
-    const dates = Array.from(
-      new Set(
-        text.match(
-          /\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4})\b/gi
-        ) || []
-      )
-    ).sort();
-    const currency = Array.from(
-      new Set(text.match(/(?:₹|Rs\.?|INR|\$|USD|€|EUR|£|GBP)\s?[\d,]+(?:\.\d{1,2})?/gi) || [])
-    );
-    const headings = Array.from(
-      new Set(
-        text
-          .split('\n')
-          .map((l) => l.trim())
-          .filter((l) => l && l.length <= 70 && (l === l.toUpperCase() || l.endsWith(':')))
-          .map((l) => l.replace(/:$/, ''))
-      )
-    ).slice(0, 40);
+    const { text, method, extractedUrls } = await parseDocument(targetFile);
+    const fields = extractStructuredFields(text, targetFile.name, extractedUrls);
 
     return {
       id: String(Date.now()),
       filename: targetFile.name,
       file_type: targetFile.name.split('.').pop()?.toUpperCase() || 'FILE',
       size_bytes: targetFile.size,
-      extraction_method: 'Client Parser (Vercel Web)',
+      extraction_method: method || 'Client Parser (Vercel Web)',
       extracted_at: new Date().toISOString(),
       text: text.slice(0, 200000),
       truncated: text.length > 200000,
-      fields: {
-        filename: targetFile.name,
-        emails,
-        phone_numbers: phones,
-        urls,
-        dates,
-        currency_values: currency,
-        possible_headings: headings,
-        line_count: text.split('\n').length,
-        word_count: (text.match(/\b\w+\b/g) || []).length,
-        preview: text.slice(0, 1200),
-        note: 'Extracted via browser entity heuristics.',
-      },
+      fields,
     };
   };
 

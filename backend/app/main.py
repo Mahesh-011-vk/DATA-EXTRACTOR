@@ -94,23 +94,80 @@ def extract_text(path: Path, ext: str) -> tuple[str, str]:
     raise ValueError("Unsupported file type")
 
 def extract_fields(text: str, filename: str) -> dict[str, Any]:
-    """Conservative heuristic field extraction. Values are best-effort, not verified facts."""
-    emails = sorted(set(re.findall(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text, re.I)))
-    phones = sorted(set(re.findall(r"(?<!\w)(?:\+?\d[\d\s().-]{7,}\d)(?!\w)", text)))
-    urls = sorted(set(re.findall(r"https?://[^\s<>\])}]+", text, re.I)))
+    """Conservative heuristic field extraction with validation filtering."""
+    # 1. Emails
+    raw_emails = re.findall(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text, re.I)
+    emails = sorted({e.lower() for e in raw_emails if not e.lower().endswith(('.png', '.jpg', '.jpeg')) and 'c2pa' not in e and 'w3.org' not in e})
+
+    # 2. Phone Numbers: 7-15 digits, realistic phone formatting
+    raw_phones = re.findall(r"(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{3,4}(?:[-.\s]?\d{1,4})?", text)
+    valid_phones = set()
+    for p in raw_phones:
+        cleaned = re.sub(r"^[^\d+]+|[^\d]+$", "", p.strip())
+        digits = re.sub(r"\D", "", cleaned)
+        if len(digits) < 7 or len(digits) > 15:
+            continue
+        if len(cleaned.split('.')) > 2 and not cleaned.startswith('+'):
+            continue
+        if re.match(r"^\d{4}[-./]\d{2}[-./]\d{2,4}$", cleaned):
+            continue
+        valid_phones.add(cleaned)
+    phones = sorted(valid_phones)
+
+    # 3. URLs: filter internal XML schemas
+    raw_urls = re.findall(r"https?://[^\s<>\])}]+", text, re.I)
+    valid_urls = set()
+    for u in raw_urls:
+        u = re.sub(r"[.,;!?)]+$", "", u)
+        if any(ign in u for ign in ('w3.org', 'c2pa.ssl.com', 'iptc.org', 'ns.adobe.com', 'schema.org', 'openxmlformats.org')):
+            continue
+        valid_urls.add(u)
+    # Also capture github / linkedin profiles
+    for profile in re.findall(r"(?:github\.com|linkedin\.com/in)/[a-zA-Z0-9_-]+", text, re.I):
+        valid_urls.add(f"https://{profile}")
+    urls = sorted(valid_urls)
+
+    # 4. Dates
     dates = sorted(set(re.findall(
         r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2}|"
         r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
         r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
         r"\s+\d{1,2},?\s+\d{4})\b", text, re.I)))
-    currency = re.findall(r"(?:₹|Rs\.?|INR|\$|USD|€|EUR|£|GBP)\s?[\d,]+(?:\.\d{1,2})?", text, re.I)
+
+    # 5. Currency
+    raw_currency = re.findall(r"(?:₹|Rs\.?|INR|\$|USD|€|EUR|£|GBP)\s?(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{2})?|\d{2,})(?!\d)", text, re.I)
+    currency_matches = re.findall(r"(?:₹|Rs\.?|INR|\$|USD|€|EUR|£|GBP)\s?[\d,]+(?:\.\d{1,2})?", text, re.I)
+    valid_currency = set()
+    for c in currency_matches:
+        c = c.strip()
+        if c in ('$0', '$00', '$,,') or re.search(r"[\$€£₹][,\.\s]*$", c):
+            continue
+        if re.search(r"\d", c):
+            valid_currency.add(c)
+    currency = sorted(valid_currency)
+
+    # 6. Headings
     headings = []
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped and len(stripped) <= 70 and (stripped.isupper() or stripped.endswith(":")):
-            candidate = stripped.rstrip(":")
-            if candidate not in headings:
+        if not stripped or len(stripped) > 70 or len(stripped) < 3:
+            continue
+        letter_count = len(re.findall(r"[A-Za-z]", stripped))
+        if letter_count < 2 or (letter_count / len(stripped)) < 0.4:
+            continue
+        if any(ign in stripped for ign in ('http://', 'https://', '@', 'www.', '.com')):
+            continue
+        if re.match(r"^[\[({<+*].*[\])}>+*]$", stripped):
+            continue
+        is_colon = stripped.endswith(":")
+        is_upper = stripped == stripped.upper() and letter_count >= 3
+        is_title = bool(re.match(r"^[A-Z][a-z]+(\s+[A-Z][a-z]+)*$", stripped)) and len(stripped.split()) <= 6
+        is_known = bool(re.match(r"^(summary|professional summary|technical skills|skills|work experience|experience|education|projects|certifications|awards|publications|contact|languages|profile|about|overview)", stripped, re.I))
+        if is_colon or is_upper or is_title or is_known:
+            candidate = re.sub(r"[:\-–—*#]+$", "", stripped).strip()
+            if len(candidate) >= 3 and candidate not in headings:
                 headings.append(candidate)
+
     preview_lines = [line.strip() for line in text.splitlines() if line.strip()]
     return {
         "filename": filename,
@@ -118,7 +175,7 @@ def extract_fields(text: str, filename: str) -> dict[str, Any]:
         "phone_numbers": phones,
         "urls": urls,
         "dates": dates,
-        "currency_values": list(dict.fromkeys(currency)),
+        "currency_values": currency,
         "possible_headings": headings[:40],
         "line_count": len(text.splitlines()),
         "word_count": len(re.findall(r"\b\w+\b", text)),

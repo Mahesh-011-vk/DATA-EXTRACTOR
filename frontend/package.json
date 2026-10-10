@@ -10,10 +10,13 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
+    "lucide-react": "latest",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^6.4.299",
     "react": "latest",
     "react-dom": "latest",
-    "lucide-react": "latest"
+    "tesseract.js": "^7.0.0",
+    "vite": "latest"
   },
   "devDependencies": {
     "@types/react": "latest",
