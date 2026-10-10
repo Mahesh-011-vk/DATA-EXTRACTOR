@@ -138,19 +138,83 @@ export default function App() {
     chooseFile(event.dataTransfer.files?.[0] ?? null);
   };
 
+  const extractClientSide = async (targetFile: File): Promise<Result> => {
+    let text = '';
+    try {
+      text = await targetFile.text();
+    } catch {
+      text = `Extracted from ${targetFile.name}`;
+    }
+    const emails = Array.from(new Set(text.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g) || [])).sort();
+    const phones = Array.from(new Set(text.match(/(?<!\w)(?:\+?\d[\d\s().-]{7,}\d)(?!\w)/g) || [])).sort();
+    const urls = Array.from(new Set(text.match(/https?:\/\/[^\s<>\])}]+/gi) || [])).sort();
+    const dates = Array.from(
+      new Set(
+        text.match(
+          /\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4})\b/gi
+        ) || []
+      )
+    ).sort();
+    const currency = Array.from(
+      new Set(text.match(/(?:₹|Rs\.?|INR|\$|USD|€|EUR|£|GBP)\s?[\d,]+(?:\.\d{1,2})?/gi) || [])
+    );
+    const headings = Array.from(
+      new Set(
+        text
+          .split('\n')
+          .map((l) => l.trim())
+          .filter((l) => l && l.length <= 70 && (l === l.toUpperCase() || l.endsWith(':')))
+          .map((l) => l.replace(/:$/, ''))
+      )
+    ).slice(0, 40);
+
+    return {
+      id: String(Date.now()),
+      filename: targetFile.name,
+      file_type: targetFile.name.split('.').pop()?.toUpperCase() || 'FILE',
+      size_bytes: targetFile.size,
+      extraction_method: 'Client Parser (Vercel Web)',
+      extracted_at: new Date().toISOString(),
+      text: text.slice(0, 200000),
+      truncated: text.length > 200000,
+      fields: {
+        filename: targetFile.name,
+        emails,
+        phone_numbers: phones,
+        urls,
+        dates,
+        currency_values: currency,
+        possible_headings: headings,
+        line_count: text.split('\n').length,
+        word_count: (text.match(/\b\w+\b/g) || []).length,
+        preview: text.slice(0, 1200),
+        note: 'Extracted via browser entity heuristics.',
+      },
+    };
+  };
+
   const extract = async (fileToExtract?: File) => {
     const targetFile = fileToExtract || file;
     if (!targetFile) return;
     setBusy(true);
     setError('');
     try {
-      const body = new FormData();
-      body.append('file', targetFile);
-      const response = await fetch(`${API_BASE}/api/extract`, { method: 'POST', body });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.detail || `Extraction failed (${response.status})`);
-      
-      const newResult = payload as Result;
+      let newResult: Result;
+      try {
+        const body = new FormData();
+        body.append('file', targetFile);
+        const response = await fetch(`${API_BASE}/api/extract`, { method: 'POST', body });
+        if (response.ok) {
+          const payload = await response.json();
+          newResult = payload as Result;
+        } else {
+          newResult = await extractClientSide(targetFile);
+        }
+      } catch {
+        // Fallback to client-side extraction if backend API is not hosted or unreachable
+        newResult = await extractClientSide(targetFile);
+      }
+
       setResult(newResult);
 
       // Auto-store extracted document into storage history
@@ -158,12 +222,15 @@ export default function App() {
         ...newResult,
         savedAt: new Date().toISOString(),
       };
-      const updated = [storedItem, ...savedDocs.filter((d) => d.id !== newResult.id && d.filename !== newResult.filename)].slice(0, 20);
+      const updated = [
+        storedItem,
+        ...savedDocs.filter((d) => d.id !== newResult.id && d.filename !== newResult.filename),
+      ].slice(0, 20);
       persistDocs(updated);
       setSaveToast(true);
       setTimeout(() => setSaveToast(false), 2500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Extraction error. Check backend connection.');
+      setError(err instanceof Error ? err.message : 'Extraction error.');
     } finally {
       setBusy(false);
     }
@@ -216,24 +283,38 @@ export default function App() {
     }
   };
 
-  const download = async (format: 'json' | 'csv') => {
+  const download = (format: 'json' | 'csv') => {
     if (!result) return;
     try {
-      const response = await fetch(`${API_BASE}/api/export/${format}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(result),
-      });
-      if (!response.ok) throw new Error('Export failed');
-      const blob = await response.blob();
+      let blob: Blob;
+      if (format === 'json') {
+        const content = JSON.stringify(result, null, 2);
+        blob = new Blob([content], { type: 'application/json' });
+      } else {
+        const rows = [
+          'field,value',
+          `filename,"${result.filename}"`,
+          `file_type,"${result.file_type}"`,
+          `extraction_method,"${result.extraction_method}"`,
+          `word_count,${result.fields.word_count}`,
+          `line_count,${result.fields.line_count}`,
+          `emails,"${result.fields.emails.join('; ')}"`,
+          `phone_numbers,"${result.fields.phone_numbers.join('; ')}"`,
+          `currency_values,"${result.fields.currency_values.join('; ')}"`,
+          `dates,"${result.fields.dates.join('; ')}"`,
+          `urls,"${result.fields.urls.join('; ')}"`,
+          `possible_headings,"${result.fields.possible_headings.join('; ')}"`,
+        ];
+        blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+      }
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
       anchor.download = format === 'json' ? `${result.filename}-data.json` : `${result.filename}-fields.csv`;
       anchor.click();
       URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not export data.');
+    } catch {
+      setError('Could not export data.');
     }
   };
 
