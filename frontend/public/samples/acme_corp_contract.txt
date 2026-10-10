@@ -1,0 +1,25 @@
+MASTER SERVICES AGREEMENT
+Effective Date: March 12, 2026
+Agreement Reference: MSA-2026-CODERS
+
+PARTIES INVOLVED:
+Company: Coders Global Intelligence Ltd.
+Client: Nexus Enterprise Corporation (https://www.nexusgroup.com)
+Primary Contact Email: partnerships@nexusgroup.com
+Billing Contact: accounts.payable@nexusgroup.com
+Support Hotline: +1 (800) 555-0199 / +44 20 7183 8740
+
+TERMS AND PAYMENT SCHEDULE:
+Initial Milestone Fee: $50,000.00 USD
+Quarterly Maintenance: $12,500.00 USD
+Payment Due Date: April 15, 2026
+
+SCOPE OF WORK:
+1. High-throughput document parser deployment using PyMuPDF and Tesseract OCR.
+2. Automated heuristic extraction for entity classification (Emails, Phone numbers, URLs, Currencies).
+3. Real-time natural language query pipeline with PandasAI and LiteLLM.
+
+SIGNATURES:
+Authorized Representative: Ann Kowalski (Managing Director)
+Client Signatory: Robert Sterling (VP Operations)
+Signed on: March 14, 2026

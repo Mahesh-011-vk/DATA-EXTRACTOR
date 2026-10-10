@@ -1,0 +1,6 @@
+Transaction_ID,Date,Client_Email,Contact_Phone,Amount_USD,Service_Description,Status
+TX-10492,2026-03-15,alex.rivera@fintech.io,+1 (415) 892-3301,$48,900.00,Cloud Data Infrastructure,Completed
+TX-10493,2026-03-18,elena.rostova@nexusgroup.com,+44 20 7946 0912,$15,200.00,UI UX Design Audit,Completed
+TX-10494,2026-03-22,david.kim@apexventures.co,+1 (212) 555-0199,$89,450.00,AI Document Intelligence System,In Progress
+TX-10495,2026-03-25,sophia.m@globalcapital.net,+49 30 123456,$32,100.00,Cybersecurity Compliance Review,Completed
+TX-10496,2026-03-28,marcus.vance@vancetech.com,+1 (650) 443-8822,$64,800.00,Enterprise LLM Extraction Pipeline,Completed
